@@ -1,54 +1,90 @@
 package org.chronos.utils;
 
 import java.io.File;
-import java.io.FileInputStream;
+import java.io.FileWriter;
+import java.io.PrintWriter;
 import java.util.HashMap;
 import java.util.HashSet;
 
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.IOUtils;
 import org.apache.log4j.Logger;
+import org.chronos.utils.common.Constants;
+import org.chronos.utils.common.Utils;
 
 public class Deduplicator {
 	
 	private static final Logger logger = Logger.getLogger(Deduplicator.class);
 	
-	private static String workingFolder = "/media/alejandro/My Passport 500GB/Recover";
-	private static String[] originFolders = new String [] {"2018", "2013"};
-	private static String targetFolder = "unique";
-
-	private static int processedFiles = 0;
-	private static int uniqueFiles = 0;
-	private static int duplicateFiles = 0;
 	
 	private static int logFrequency = 100;
 	
-	private static HashMap<Long, HashSet<String>> fileIdentifiers = new HashMap<>();
-	private static HashSet<String> extensions = new HashSet<>();
 	
-	public static void main(String[] args) throws Exception {
-		logger.info("Starting deduplication process");
+	public static void combineFolders(String workingFolder, String[] combineFolders) throws Exception {
+		long start;
+		logger.info("Starting combination process");
+		CombinerInfo info = new CombinerInfo();
+			info.setWorkingFolder(workingFolder);
 
-		File uniqueFolder = new File(workingFolder + "/" + targetFolder);
-		if (uniqueFolder.exists()) {
-			uniqueFolder.delete();
+		File uniqueFolder = new File(workingFolder + "/" + Constants.uniqueFolder);
+		if (uniqueFolder.exists() && uniqueFolder.isDirectory()) {
+			logger.info("There is a previous \"unique\" folder so it is removed");
+			start = System.currentTimeMillis();
+			FileUtils.deleteDirectory(uniqueFolder);
+			logger.info("Folder removed in " + (System.currentTimeMillis() - start) + " ms.");
 		}
 		uniqueFolder.mkdir();
 		logger.info("Unique folder created");
+
+		String resultsFileName = workingFolder + "/" + Constants.hashesFile;
+		logger.info("Creating new hashes file: " + resultsFileName);
 		
-		for (String originFolder : originFolders) {
-			readFilesInFolder(workingFolder + "/" + originFolder);
+		File results = new File(resultsFileName);
+		if (results.exists()) {
+			results.delete();
 		}
+		PrintWriter hashesOutput = new PrintWriter(new FileWriter(resultsFileName, true));
 		
-		printInfo();
-		logger.info("Retrieved extensions: " + extensions);
-//		System.out.println(fileIdentifiers);
-		logger.info("Deduplication process ended");
+		for (String originFolder : combineFolders) {
+			logger.info("Processing folder \"" + originFolder + "\"");
+			readFilesInFolder(workingFolder + "/" + originFolder, hashesOutput, info);
+		}
+		hashesOutput.close();
+		printInfo(info);
+		logger.info("Retrieved extensions: " + info.getExtensions());
+		logger.info("Combination process ended");
+		
 	}
 	
 	
-	private static void readFilesInFolder (String folderName) throws Exception {
+	public static void addFolder (String workingFolder, String targetFolder, String newFolder) throws Exception {
+		File hashesFile = new File(workingFolder + "/" + Constants.hashesFile);
+		long start;
+		CombinerInfo info = new CombinerInfo();
+			info.setWorkingFolder(workingFolder);
+		
+		if (!hashesFile.exists()) {
+			logger.info("Hashes file is not present so a new one would be generated");
+			start = System.currentTimeMillis();
+			HashRetriever.writeHashFile(workingFolder, targetFolder);
+			logger.info("Hashes file generated in " + (System.currentTimeMillis() - start) + " ms."); 
+		}
+		
+		logger.info("Generating hashes map from hashes file");
+		start = System.currentTimeMillis();
+		HashMap<Long, HashSet<String>> hashesMap = HashRetriever.getMapFromHashFile(workingFolder);
+		logger.info("Hashes map generated in " + (System.currentTimeMillis() - start) + " ms."); 
+		info.setFileIdentifiers(hashesMap);
+
+
+		String resultsFileName = workingFolder + "/" + Constants.hashesFile;
+		PrintWriter hashesOutput = new PrintWriter(new FileWriter(resultsFileName, true));
+		readFilesInFolder(workingFolder + "/" + newFolder, hashesOutput, info);
+		hashesOutput.close();
+	}
+	
+	
+	
+	private static void readFilesInFolder (String folderName, PrintWriter hashesOutput, CombinerInfo info) throws Exception {
 		File folder = new File(folderName);
 		if (!folder.exists() || !folder.isDirectory()) {
 			throw new Exception("Requested folder " + folderName + " does not exists or is not a directory");
@@ -56,19 +92,19 @@ public class Deduplicator {
 		
 		for (File file : folder.listFiles()) {
 			if (file.isDirectory()) {
-				readFilesInFolder(file.getPath());
+				readFilesInFolder(file.getPath(), hashesOutput, info);
 			}
 			else {
 				boolean unique = false;
 				long size = file.length();
-				String checksum = getHashForFile(file);
+				String checksum = Utils.getHashForFile(file);
 				
-				HashSet<String> checksums = fileIdentifiers.get(size);
+				HashSet<String> checksums = info.getFileIdentifiers().get(size);
 				
 				if (null == checksums) {
 					checksums = new HashSet<>();
 					checksums.add(checksum);
-					fileIdentifiers.put(size, checksums);
+					info.getFileIdentifiers().put(size, checksums);
 					unique = true;
 				}
 				else {
@@ -76,43 +112,30 @@ public class Deduplicator {
 				}
 				
 				if (unique) {
-					processUniqueFile(file);
+					String id = size + "_" + checksum;
+					processUniqueFile(file, id, hashesOutput, info);
 				}
 				else {
-					duplicateFiles++;
+					info.increaseDuplicateFiles();;
 				}
 				
-				processedFiles++;
+				info.increaseProcessedFiles();
 			}
-			if (processedFiles % logFrequency == 0) {
-				printInfo();
+			if (info.getProcessedFiles() % logFrequency == 0) {
+				printInfo(info);
 			}
 		}
 	}
 	
-	
-	private static void processUniqueFile (File file) throws Exception {
-		File uniqueFile = new File(workingFolder + "/" + targetFolder + "/" + file.getName());
+	private static void processUniqueFile (File file, String fileId, PrintWriter hashesOutput, CombinerInfo info) throws Exception {
+		File uniqueFile = new File(info.getWorkingFolder() + "/" + Constants.uniqueFolder + "/" + file.getName());
 		FileUtils.copyFile(file, uniqueFile);
-		extensions.add(file.getName().substring(file.getName().lastIndexOf(".") + 1));
-		uniqueFiles++;
+		hashesOutput.println(fileId + Constants.hashLineSeparator + file.getName());
+		info.getExtensions().add(file.getName().substring(file.getName().lastIndexOf(".") + 1));
+		info.increaseUniqueFiles();
 	}
 	
-	
-	private static String getHashForFile(File file) throws Exception {
-		FileInputStream fileInputStream = new FileInputStream(file);
-
-        // md5Hex converts an array of bytes into an array of characters representing the hexadecimal values of each byte in order.
-        // The returned array will be double the length of the passed array, as it takes two characters to represent any given byte.
-
-//        String hash = DigestUtils.md5Hex(IOUtils.toByteArray(fileInputStream));
-        String hash = DigestUtils.sha256Hex(IOUtils.toByteArray(fileInputStream));
-        fileInputStream.close();
-        
-        return hash;
-    }
-	
-	private static void printInfo() {
-		logger.info(processedFiles + " files processed [" + uniqueFiles + " unique / " + duplicateFiles + " duplicates]");
+	private static void printInfo(CombinerInfo info) {
+		logger.info(info.getProcessedFiles() + " files processed [" + info.getUniqueFiles() + " unique / " + info.getDuplicateFiles() + " duplicates]");
 	}
 }
