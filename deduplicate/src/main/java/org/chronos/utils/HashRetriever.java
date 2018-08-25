@@ -12,21 +12,22 @@ import java.util.stream.Stream;
 import org.apache.log4j.Logger;
 import org.chronos.utils.common.Constants;
 import org.chronos.utils.common.Utils;
+import org.chronos.utils.model.ProcessInfo;
+import org.chronos.utils.model.ImageInfo;
 
 public class HashRetriever {
 	
 	private static final Logger logger = Logger.getLogger(HashRetriever.class);
 	
 	private static int logFrequency = 100;
-	private static int processedFiles = 0;
 
 	private static HashSet<String> hashes = new HashSet<>();
 	private static HashSet<String> extensions = new HashSet<>();
 	
 	
-	public static HashMap<Long, HashSet<String>> getMapFromHashFile(String workingFolder) throws Exception {
+	public static HashMap<String, HashMap<String, String>> getMapFromHashFile(String workingFolder) throws Exception {
 		logger.info("Reading hashes file into a map");
-		HashMap<Long, HashSet<String>> map = new HashMap<>();
+		HashMap<String, HashMap<String, String>> map = new HashMap<>();
 		String hashesFileName = workingFolder + "/" + Constants.hashesFile;
 		
 		if (!new File(hashesFileName).exists()) {
@@ -51,18 +52,20 @@ public class HashRetriever {
 		String resultsFileName = workingFolder + "/" + Constants.hashesFile;
 		logger.info("Creating new hashes file: " + resultsFileName);
 		
+		ProcessInfo processInfo = new ProcessInfo();
+		
 		File results = new File(resultsFileName);
 		if (results.exists()) {
 			results.delete();
 		}
 		PrintWriter output = new PrintWriter(new FileWriter(resultsFileName, true));
 		
-		readFilesInFolder(workingFolder + "/" + originFolder, output);
-		printInfo();
+		readFilesInFolder(workingFolder + "/" + originFolder, output, processInfo);
+		printInfo(processInfo);
 	}
 	
 	
-	private static void addHashLineToMap (String line, HashMap<Long, HashSet<String>> map) throws RuntimeException {
+	private static void addHashLineToMap (String line, HashMap<String, HashMap<String, String>> map) throws RuntimeException {
 		String[] lineValues = line.split(Constants.hashLineSeparatorRegex);
 		if (2 != lineValues.length) {
 			throw new RuntimeException("Wrong format for hash line: " + line);
@@ -73,17 +76,17 @@ public class HashRetriever {
 			throw new RuntimeException("Wrong format for hash line: " + line);
 		}
 		
-		long fileSize = Long.parseLong(fileValues[0]);
-		HashSet<String> hashes = map.get(fileSize);
+		String size = fileValues[0];
+		HashMap<String, String> hashes = map.get(size);
 		if (null == hashes) {
-			hashes = new HashSet<>();
+			hashes = new HashMap<>();
 		}
-		hashes.add(fileValues[1]);
-		map.put(fileSize, hashes);
+		hashes.put(fileValues[1], lineValues[1]);
+		map.put(size, hashes);
 	}
 	
 	
-	private static void readFilesInFolder (String folderName, PrintWriter output) throws Exception {
+	private static void readFilesInFolder (String folderName, PrintWriter output, ProcessInfo processInfo) throws Exception {
 		File folder = new File(folderName);
 		
 		if (!folder.exists() || !folder.isDirectory()) {
@@ -93,12 +96,14 @@ public class HashRetriever {
 		
 		for (File file : folder.listFiles()) {
 			if (file.isDirectory()) {
-				readFilesInFolder(file.getPath(), output);
+				readFilesInFolder(file.getPath(), output, processInfo);
 			}
 			else {
-				long size = file.length();
-				String checksum = Utils.getHashForFile(file);
-				String id = size + "_" + checksum;
+				ImageInfo imageInfo = Utils.getImageInfo(file);
+				String size = imageInfo.getSize();
+				String hash = imageInfo.getSampleHash();
+				
+				String id = size + "_" + hash;
 				boolean unique = hashes.add(id);
 				
 				if (unique) {
@@ -108,15 +113,17 @@ public class HashRetriever {
 				else {
 					logger.warn("The retrieved file " + file.getName() + " is not unique");
 				}
+				processInfo.increaseProcessedFiles();
 			}
-			if (++processedFiles % logFrequency == 0) {
-				printInfo();
+			if (processInfo.getProcessedFiles() % logFrequency == 0) {
+				printInfo(processInfo);
 			}
 		}
 		output.close();
 	}
 	
-	private static void printInfo() {
-		logger.info(processedFiles + " files processed");
+	private static void printInfo(ProcessInfo processInfo) {
+		logger.info(processInfo.getProcessedFiles() + " files processed [" + (System.currentTimeMillis() - processInfo.getPartialStart()) + "ms]");
+		processInfo.restartPartialStart();
 	}
 }

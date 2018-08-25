@@ -22,7 +22,7 @@ public class DeduplicateApplication {
 		switch (mode) {
 			case COMBINE:
 				logger.info("Combine mode selected");
-				String[] combineFolders = chooseMultipleFolders(workingFolder);
+				String[] combineFolders = chooseFolders("combine", "test1,test2", workingFolder);
 				logger.info("Folders to be combined:");
 				for (String folderName : combineFolders) {
 					logger.info(workingFolder + "/" + folderName);
@@ -53,6 +53,16 @@ public class DeduplicateApplication {
 				
 			case EXCLUDE:
 				logger.info("Exclude mode selected");
+				String excludeTargetFolder = chooseFolder("target", "unique", workingFolder);
+				String[] exclusionFolders = chooseFolders("exclusion", "/media/alejandro/exclude", null);
+				String[] allowedExtensions = new String[] {"jpg", "jpeg", "mpg", "mpeg"};
+				if(confirmExecution("The files contained in \"" + Arrays.asList(exclusionFolders) + "\" will be excluded from \"" + excludeTargetFolder + "\"")) {
+					logger.info("Excluding files...");
+					Deduplicator.excludeFiles(workingFolder, excludeTargetFolder, exclusionFolders, allowedExtensions);
+				}
+				else {
+					System.out.println("Execution aborted");
+				}
 				break;
 	
 			default:
@@ -97,7 +107,7 @@ public class DeduplicateApplication {
 	}
 	
 	private static String chooseFolder(String folderId, String example, String parent) throws Exception {
-		System.out.println("Please, choose your " + folderId + " folder (for example \"" + example + "\"): ");
+		System.out.println("Please, choose your " + folderId + " folder [" + ((null == parent)? "absolute" : "relative to the working path") + "](for example \"" + example + "\"): ");
 		String folderName = reader.nextLine();
 		
 		File folder = new File ((null != parent? parent + "/" : "") + folderName);
@@ -108,14 +118,14 @@ public class DeduplicateApplication {
 		return folderName;
 	}
 	
-	private static String[] chooseMultipleFolders(String workingFolder) throws Exception {
-		System.out.println("Please, choose the folders being combined in your working folder separated by commas (\"test1,test2\"): ");
-		String folders = reader.nextLine();
+	private static String[] chooseFolders(String folderId, String example, String parent) throws Exception {
+		System.out.println("Please, choose your " + folderId + " folders [" + ((null == parent)? "absolute" : "relative to the working path") + "](for example \"" + example + "\"): ");
+		String folderNames = reader.nextLine();
 		
-		String[] foldersArray = folders.split(",");
+		String[] foldersArray = folderNames.split(",");
 		
 		for (String folderName : foldersArray) {
-			File folder = new File (workingFolder + "/" + folderName);
+			File folder = new File ((null != parent? parent + "/" : "") + folderName);
 			if (!folder.exists() || !folder.isDirectory()) {
 				throw new Exception ("Folder \"" + folderName + "\" does not exist or is not a directory");
 			}

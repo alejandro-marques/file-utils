@@ -1,13 +1,21 @@
 package org.chronos.utils.common;
 
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileInputStream;
+import java.util.ArrayList;
+import java.util.List;
+
+import javax.imageio.ImageIO;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.IOUtils;
+import org.apache.log4j.Logger;
+import org.chronos.utils.model.ImageInfo;
 
 public class Utils {
-	
+
+	private static final Logger logger = Logger.getLogger(Utils.class);
 	
 	public static String getHashForFile(File file) throws Exception {
 		FileInputStream fileInputStream = new FileInputStream(file);
@@ -21,5 +29,48 @@ public class Utils {
         
         return hash;
     }
+	
+	
+	public static ImageInfo getImageInfo(File file) throws Exception {
+		ImageInfo info = new ImageInfo();
+		
+		String extension = file.getName().substring(file.getName().lastIndexOf(".") + 1).toLowerCase();
+		
+		boolean sampled = false;
+		try {
+	        if("jpg".equals(extension) || "jpeg".equals(extension)){
+	    		BufferedImage image = ImageIO.read(file);
+	    		int height = image.getHeight();
+	    		info.setHeight(height);
+	    		int width = image.getWidth();
+	    		info.setWidth(width);
+	    		   
+	    		List<Integer> pixelSamples = new ArrayList<>();
+	    		for (int i = 0; i < width; i = i + Constants.pixelSampleStep) {
+	    			for (int j = 0; j < height; j = j + Constants.pixelSampleStep) {
+	    				pixelSamples.add(image.getRGB(i,j));
+	    			}
+	    		}
+	    		
+	    		String sample = "";
+	    		for (Integer pixelSample : pixelSamples) {
+	    			sample = sample + pixelSample;
+	    		}
+	    		
+	    		info.setSampleHash(DigestUtils.sha256Hex(sample));
+	    		sampled = true;
+	        }
+		}
+		catch (Exception exception) {
+			logger.warn("Error while trying to sample \"" + file.getPath() + "\" (Reason: " + exception.getMessage() + ")");
+		}
+		
+        if(!sampled){
+        	info.setSize("" + file.length());
+        	info.setSampleHash(getHashForFile(file));
+        }
+		
+		return info;
+	}
 
 }
