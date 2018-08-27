@@ -129,7 +129,7 @@ public class Deduplicator {
 	
 	
 	
-	private static void readFilesInFolder (String folderName, PrintWriter hashesOutput, ProcessInfo info) throws Exception {
+	private static void readFilesInFolder (String folderName, PrintWriter hashesOutput, ProcessInfo processInfo) throws Exception {
 		File folder = new File(folderName);
 		if (!folder.exists() || !folder.isDirectory()) {
 			throw new Exception("Requested folder " + folderName + " does not exists or is not a directory");
@@ -137,39 +137,59 @@ public class Deduplicator {
 		
 		for (File file : folder.listFiles()) {
 			if (file.isDirectory()) {
-				readFilesInFolder(file.getPath(), hashesOutput, info);
+				readFilesInFolder(file.getPath(), hashesOutput, processInfo);
 			}
 			else {
-				boolean unique = false;
-				
 				ImageInfo imageInfo = Utils.getImageInfo(file);
-				String size = imageInfo.getSize();
-				String hash = imageInfo.getSampleHash();
 				
-				HashMap<String, String> checksums = info.getFileIdentifiers().get(size);
-				
-				if (null == checksums) {
-					checksums = new HashMap<>();
-					checksums.put(hash, file.getName());
-					info.getFileIdentifiers().put(size, checksums);
-					unique = true;
+				if (null == imageInfo) {
+					File uniqueFile = new File(processInfo.getWorkingFolder() + "/" + Constants.uniqueFolder + "/" + Constants.smallFolder + "/" + file.getName());
+					FileUtils.copyFile(file, uniqueFile);
+					processInfo.increaseDiscardedFiles();
 				}
-				else {
-					unique = null == checksums.put(hash, file.getName());
+				else { 
+
+					boolean unique = false;
+					boolean debug = false;
+					
+					if ("2003-12-06 23.00.50 - f12128904.jpg".equals(file.getName()) || "2014-11-09 17.42.56 - IMG-20141109-WA0001.jpg".equals(file.getName())) {
+						debug = true;
+					}
+					
+					String size = imageInfo.getSize();
+					String hash = imageInfo.getSampleHash();
+					
+					HashMap<String, String> checksums = processInfo.getFileIdentifiers().get(size);
+					
+					if (null == checksums) {
+						checksums = new HashMap<>();
+						processInfo.getFileIdentifiers().put(size, checksums);
+						unique = true;
+					}
+					else {
+						String previousFile = checksums.get(hash);
+						unique = null == previousFile;
+					}
+					if (unique) {
+						if (true == debug) {
+							logger.warn("#### adding unique file " + file.getPath() + " - " + hash);
+						}
+						checksums.put(hash, file.getName());
+						String id = size + "_" + hash;
+						processUniqueFile(file, id, hashesOutput, processInfo);
+					}
+					else {
+						if (true == debug) {
+							logger.warn("#### " + file.getPath() + " repetido de " + checksums.get(hash) + " [" + hash + "]");
+						}
+						processInfo.increaseDuplicateFiles();
+					}
 				}
-				
-				if (unique) {
-					String id = size + "_" + hash;
-					processUniqueFile(file, id, hashesOutput, info);
-				}
-				else {
-					info.increaseDuplicateFiles();;
-				}
-				
-				info.increaseProcessedFiles();
+
+				processInfo.increaseProcessedFiles();
 			}
-			if (info.getProcessedFiles() % logFrequency == 0) {
-				printInfo(info);
+			if (processInfo.getProcessedFiles() % logFrequency == 0) {
+				printInfo(processInfo);
 			}
 		}
 	}
@@ -188,28 +208,34 @@ public class Deduplicator {
 			}
 			else if (allowedExtensions.contains(file.getName().substring(file.getName().lastIndexOf(".") + 1).toLowerCase())) {
 				ImageInfo imageInfo = Utils.getImageInfo(file);
-				String size = imageInfo.getSize();
-				String hash = imageInfo.getSampleHash();
 				
-				HashMap<String, String> hashes = processInfo.getFileIdentifiers().get(size);
-				if (null != hashes && null != hashes.get(hash)){
-					String fileName = hashes.get(hash);
+				if (null != imageInfo) {
+					String size = imageInfo.getSize();
+					String hash = imageInfo.getSampleHash();
 					
-					File movedFile = new File(completeTargetFolderName + "/" + fileName);
-					if (movedFile.exists()){
-						FileUtils.moveFile(movedFile, new File(completeTargetFolderName + "/" + Constants.excludedFolder + "/" + fileName));
-						hashes.remove(hash);
-						if (hashes.size() == 0){
-							processInfo.getFileIdentifiers().remove(size);
+					HashMap<String, String> hashes = processInfo.getFileIdentifiers().get(size);
+					if (null != hashes && null != hashes.get(hash)){
+						String fileName = hashes.get(hash);
+	
+						if ("f12128904.jpg".equals(fileName)) {
+							logger.warn("#### excluido por " + file.getName());
 						}
-						processInfo.increaseExcludedFiles();
+						
+						File movedFile = new File(completeTargetFolderName + "/" + fileName);
+						if (movedFile.exists()){
+							FileUtils.moveFile(movedFile, new File(completeTargetFolderName + "/" + Constants.excludedFolder + "/" + fileName));
+							hashes.remove(hash);
+							if (hashes.size() == 0){
+								processInfo.getFileIdentifiers().remove(size);
+							}
+							processInfo.increaseExcludedFiles();
+						}
+						else {
+							logger.warn("File " + movedFile.getPath() + " does not exist, but it seems to be present in the hash [" + hashes.get(hash) + "]");
+						}
 					}
-					else {
-						logger.warn("File " + movedFile.getPath() + " does not exist, but it seems to be present in the hash [" + hashes.get(hash) + "]");
-					}
+					processInfo.increaseProcessedFiles();
 				}
-				
-				processInfo.increaseProcessedFiles();
 			}
 			if (processInfo.getProcessedFiles() % logFrequency == 0) {
 				printExclusionInfo(processInfo);
@@ -230,7 +256,7 @@ public class Deduplicator {
 	}
 	
 	private static void printInfo(ProcessInfo info) {
-		logger.info(info.getProcessedFiles() + " files processed [" + info.getUniqueFiles() + " unique / " + info.getDuplicateFiles() + " duplicates] - " + (System.currentTimeMillis() - info.getPartialStart()) + "ms");
+		logger.info(info.getProcessedFiles() + " files processed [" + info.getUniqueFiles() + " unique / " + info.getDuplicateFiles() + " duplicates / " + info.getDiscardedFiles() + " discarded] - " + (System.currentTimeMillis() - info.getPartialStart()) + "ms");
 		info.restartPartialStart();
 	}
 	

@@ -44,6 +44,10 @@ public class Utils {
 	    		info.setHeight(height);
 	    		int width = image.getWidth();
 	    		info.setWidth(width);
+	    		
+	    		if(height<100 || width<100 || height<320 && width < 320) {
+	    			return null;
+	    		}
 	    		   
 	    		List<Integer> pixelSamples = new ArrayList<>();
 	    		for (int i = 0; i < width; i = i + Constants.pixelSampleStep) {

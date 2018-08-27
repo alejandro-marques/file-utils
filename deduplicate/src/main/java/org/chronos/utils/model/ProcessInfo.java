@@ -8,6 +8,7 @@ public class ProcessInfo {
 	private long processedFiles = 0;
 	private long uniqueFiles = 0;
 	private long duplicateFiles = 0;
+	private long discardedFiles = 0;
 	private long excludedFiles = 0;
 	
 	private long startTime = System.currentTimeMillis();
@@ -32,6 +33,10 @@ public class ProcessInfo {
 	public long getDuplicateFiles() { return duplicateFiles; }
 	public void setDuplicateFiles(long duplicateFiles) { this.duplicateFiles = duplicateFiles; }
 	public void increaseDuplicateFiles () {duplicateFiles++;}
+	
+	public long getDiscardedFiles() { return discardedFiles; }
+	public void setDiscardedFiles(long discardedFiles) { this.discardedFiles = discardedFiles; }
+	public void increaseDiscardedFiles () {discardedFiles++;}
 	
 	public long getExcludedFiles() { return excludedFiles; }
 	public void setExcludedFiles(long excludedFiles) { this.excludedFiles = excludedFiles; }
